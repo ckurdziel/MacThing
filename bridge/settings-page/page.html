@@ -104,7 +104,7 @@
   section:first-child > .subhead { margin-top: 0; }
   .row.off { opacity: .45; }
   @media (max-width: 520px) { .row { flex-wrap: wrap; } }
-  #calList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); column-gap: 24px; margin-top: 12px; }
+  #calList, #todoList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); column-gap: 24px; margin-top: 12px; }
   .cal { display: grid; grid-template-columns: 16px 10px minmax(0, 1fr); gap: 10px; align-items: start; min-width: 0; padding: 10px 0; }
   .cal > div { min-width: 0; overflow-wrap: anywhere; }
   .cal .dot { margin: 6px 0 0; }
@@ -163,14 +163,14 @@
         <div class="row"><div><label class="label" for="screenSleep">Sleep</label><div class="note">With Mac: when the Mac’s display sleeps or the Mac locks. Idle: no keyboard or mouse on the Mac</div></div>
           <select id="screenSleep" data-key="screenSleep" data-type="number"><option value="mac">With Mac</option><option value="30">Mac idle 30 min</option><option value="60">Mac idle 1 hr</option><option value="120">Mac idle 2 hr</option><option value="240">Mac idle 4 hr</option><option value="never">Never</option></select></div>
         <div class="row" id="whenLockedRow"><div><label class="label" for="whenLocked">When Mac is locked</label><div class="note" id="whenLockedNote"></div></div>
-          <select id="whenLocked" data-key="whenLocked"><option value="unlocked">Everything works</option><option value="nowplaying">Now Playing only</option><option value="weather">Weather only</option><option value="calendar">Calendar only</option><option value="clock">Clock only</option><option value="photos">Photos only</option></select></div>
+          <select id="whenLocked" data-key="whenLocked"><option value="unlocked">Everything works</option><option value="nowplaying">Now Playing only</option><option value="weather">Weather only</option><option value="calendar">Calendar only</option><option value="clock">Clock only</option><option value="photos">Photos only</option><option value="todo">Reminders only</option></select></div>
       </section>
       <section>
         <h3 class="subhead">When no music is playing</h3>
         <div class="row"><div><label class="label" for="rotateSeconds">Cycle screens</label><div class="note">The top buttons’ screens in turn; a press or turn holds it for a minute</div></div>
           <select id="rotateSeconds" data-key="rotateSeconds" data-type="number"><option value="0">Off</option><option value="15">Every 15 sec</option><option value="30">Every 30 sec</option><option value="60">Every 1 min</option><option value="120">Every 2 min</option></select></div>
         <div class="row" id="idleShowRow"><div><div class="label">Show</div><div class="note">Now Playing comes back when music starts</div></div>
-          <span class="seg" data-key="idleScreen" id="idleScreen"><button data-v="weather">Weather</button><button data-v="clock">Clock</button><button data-v="calendar">Calendar</button><button data-v="photos">Photos</button><button data-v="none">Date</button></span></div>
+          <span class="seg" data-key="idleScreen" id="idleScreen"><button data-v="weather">Weather</button><button data-v="clock">Clock</button><button data-v="calendar">Calendar</button><button data-v="photos">Photos</button><button data-v="todo">Reminders</button><button data-v="none">Date</button></span></div>
         <div class="row" id="idleAfterRow"><label class="label" for="idleMinutes">After</label>
           <select id="idleMinutes" data-key="idleMinutes" data-type="number"><option value="0" hidden>—</option><option value="1">1 min</option><option value="2">2 min</option><option value="5">5 min</option><option value="10">10 min</option></select></div>
       </section>
@@ -244,6 +244,10 @@
     </div>
 
     <div class="settings-panel" id="reminders" hidden role="region" aria-labelledby="category-title">
+      <section>
+        <h3 class="subhead">Reminders screen</h3>
+        <div class="row stack"><div class="note" id="todoNote"></div><div id="todoList"></div></div>
+      </section>
       <section>
         <h3 class="subhead">Active hours</h3>
         <div class="row"><div><div class="label">Show reminders</div><div class="note">No reminder shows outside these hours</div></div>
@@ -323,6 +327,7 @@
     renderSlots();
     renderAlbums();
     renderCalendars();
+    renderTodoLists();
     renderReminders();
   }
 
@@ -562,7 +567,7 @@
 
   // The top buttons' screens. Each screen is on one button at most, so picking one that another
   // button has swaps the two.
-  const SCREEN_NAMES = { nowplaying: 'Now Playing', calendar: 'Calendar', weather: 'Weather', clock: 'Clock', photos: 'Photos' };
+  const SCREEN_NAMES = { nowplaying: 'Now Playing', calendar: 'Calendar', weather: 'Weather', clock: 'Clock', photos: 'Photos', todo: 'Reminders' };
   const slots = [0, 1, 2, 3].map((i) => $(`#slot${i}`));
   slots.forEach((select, i) => {
     select.replaceChildren(...Object.entries(SCREEN_NAMES).map(([v, name]) => new Option(name, v)));
@@ -617,32 +622,16 @@
     save({ photosAlbum: favorites && $('#photosAlbum').value === favorites.id ? null : $('#photosAlbum').value });
   });
 
-  // Which calendars feed the device. null means every one, so calendars added later come along too.
-  function renderCalendars() {
-    const cal = state.calendar || {};
-    const list = cal.list || [];
-    const chosen = state.settings.calendars;
+  // A checkbox per calendar or reminders list. null means every one, so ones added later come along too.
+  function renderChecklist(container, list, chosen, key) {
     const on = (c) => !chosen || chosen.includes(c.id);
-
-    const calNote = $('#calNote');
-    const none = chosen && chosen.length === 0;
-    calNote.classList.toggle('warn', cal.status !== 'authorized' || none);
-    calNote.textContent =
-      cal.status !== 'authorized'
-        ? cal.status === 'denied' || cal.status === 'restricted'
-          ? 'Calendar access is off for “Car Thing Helper”. Turn it on in System Settings → Privacy & Security → Calendars.'
-          : 'macOS will ask for permission the first time.'
-      : none ? 'No calendars chosen — the device has nothing to show.'
-      : !chosen ? 'Every calendar, including any you add later.'
-      : `${list.filter(on).length} of ${list.length} calendars.`;
-
-    $('#calList').replaceChildren(...list.map((c) => {
+    container.replaceChildren(...list.map((c) => {
       const box = document.createElement('input');
       box.type = 'checkbox';
       box.checked = on(c);
       box.addEventListener('change', () => {
         const ids = list.filter((x) => (x.id === c.id ? box.checked : on(x))).map((x) => x.id);
-        save({ calendars: ids.length === list.length ? null : ids });
+        save({ [key]: ids.length === list.length ? null : ids });
       });
       const dot = document.createElement('span');
       dot.className = 'dot';
@@ -657,6 +646,43 @@
       label.append(box, dot, text);
       return label;
     }));
+  }
+
+  function renderCalendars() {
+    const cal = state.calendar || {};
+    const list = cal.list || [];
+    const chosen = state.settings.calendars;
+    const calNote = $('#calNote');
+    const none = chosen && chosen.length === 0;
+    calNote.classList.toggle('warn', cal.status !== 'authorized' || none);
+    calNote.textContent =
+      cal.status !== 'authorized'
+        ? cal.status === 'denied' || cal.status === 'restricted'
+          ? 'Calendar access is off for “Car Thing Helper”. Turn it on in System Settings → Privacy & Security → Calendars.'
+          : 'macOS will ask for permission the first time.'
+      : none ? 'No calendars chosen — the device has nothing to show.'
+      : !chosen ? 'Every calendar, including any you add later.'
+      : `${list.filter((c) => chosen.includes(c.id)).length} of ${list.length} calendars.`;
+    renderChecklist($('#calList'), list, chosen, 'calendars');
+  }
+
+  // The lists the Reminders screen shows (the Reminders app's, not the reminder cards below).
+  function renderTodoLists() {
+    const todo = state.todo || {};
+    const list = todo.lists || [];
+    const chosen = state.settings.todoLists;
+    const note = $('#todoNote');
+    const none = chosen && chosen.length === 0;
+    note.classList.toggle('warn', todo.status === 'denied' || todo.status === 'restricted' || none);
+    note.textContent =
+      todo.status !== 'authorized'
+        ? todo.status === 'denied' || todo.status === 'restricted'
+          ? 'Reminders access is off for “Car Thing Helper”. Turn it on in System Settings → Privacy & Security → Reminders.'
+          : 'Your to-dos from the Reminders app, read-only. macOS will ask for permission when the Reminders screen first loads; put it on a top button to start.'
+      : none ? 'No lists chosen — the Reminders screen has nothing to show.'
+      : !chosen ? 'Every list in the Reminders app, including any you add later.'
+      : `${list.filter((c) => chosen.includes(c.id)).length} of ${list.length} lists.`;
+    renderChecklist($('#todoList'), list, chosen, 'todoLists');
   }
 
   function saveChoice(control, value) {

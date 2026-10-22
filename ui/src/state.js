@@ -4,10 +4,10 @@ import { initializeRuntime } from '../js/core.js';
 export const state = reactive({
   // screenSwitch: how the current screen is coming in ('fade', 'next', 'previous'), until it has (core.js).
   current: 'nowplaying', leaving: '', screenSwitch: 'fade', offline: true, asleep: false, light: false,
-  settings: { theme: 'dark', units: 'F', clock24h: false, clockFace: 'analog', meetingAlert: 0, usageSource: 'claude', knobVolume: 'auto', idleMinutes: 0, idleScreen: 'clock', rotateSeconds: 0, screenSleep: 'mac', whenLocked: 'unlocked', location: { mode: 'auto' }, screens: ['nowplaying', 'calendar', 'weather', 'clock'], photosAlbum: null, photosSeconds: 30 },
+  settings: { theme: 'dark', units: 'F', clock24h: false, clockFace: 'analog', meetingAlert: 0, usageSource: 'claude', knobVolume: 'auto', idleMinutes: 0, idleScreen: 'clock', rotateSeconds: 0, screenSleep: 'mac', whenLocked: 'unlocked', location: { mode: 'auto' }, screens: ['nowplaying', 'calendar', 'weather', 'clock'], photosAlbum: null, photosSeconds: 30, todoLists: null },
   now: Date.now(), np: { active: false }, npAt: 0, artwork: null,
   weather: { status: 'loading' }, calendar: { status: 'loading' }, perpetual: { status: 'loading' }, usage: { status: 'loading' }, chatgptUsage: { status: 'loading' },
-  photo: { status: 'loading' },
+  photo: { status: 'loading' }, todo: { status: 'loading' },
   volume: 0, volumeUnsupported: false, volumeNote: '', volumeIcon: '', showVolume: false,
   flash: { icon: 'play', color: '', key: 0 }, flashing: false, toast: '',
   // The back button's usage refresh: '' idle, 'spin' (the ⟳ turns once), 'pending' (••• until the
@@ -110,6 +110,7 @@ CT.on('artwork', msg => { state.artwork = msg; });
 CT.on('weather', msg => { state.weather = msg.weather; });
 CT.on('calendar', msg => { state.calendar = msg.calendar; });
 CT.on('perpetual', msg => { state.perpetual = msg.perpetual; });
+CT.on('todo', msg => { state.todo = msg.todo; });
 // The Photos screen's photo changes only once the next one is decoded, so it crossfades from one
 // whole picture to the next instead of drawing in. Loading (the next one on its way) keeps the
 // photo that's up; any other status has no photo to show.

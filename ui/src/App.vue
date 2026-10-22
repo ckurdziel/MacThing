@@ -9,6 +9,7 @@ import CalendarScreen from './screens/CalendarScreen.vue';
 import WeatherScreen from './screens/WeatherScreen.vue';
 import ClockScreen from './screens/ClockScreen.vue';
 import PhotosScreen from './screens/PhotosScreen.vue';
+import TodoScreen from './screens/TodoScreen.vue';
 import SettingsScreen from './screens/SettingsScreen.vue';
 import MeetingAlert from './components/MeetingAlert.vue';
 import ReminderAlert from './components/ReminderAlert.vue';
@@ -31,7 +32,7 @@ watch(slot, i => { if (i >= 0) notchAt.value = i; });
   <IconSymbols />
   <div id="app" :data-screen="state.current" :class="{ offline: state.offline, asleep: state.asleep, light: state.light, 'ambient-on': ambient, 'show-volume': state.showVolume, 'volume-unsupported': state.volumeUnsupported }">
     <div v-if="ambient" class="ambient fill" :class="{ 'pre-blurred': ambientPreBlurred }"><Artwork :url="ambientUrl" :tint="ambientTint" /></div>
-    <div class="screens fill" :data-switch="state.screenSwitch || null"><NowPlayingScreen /><CalendarScreen /><WeatherScreen /><ClockScreen /><PhotosScreen /><SettingsScreen /></div>
+    <div class="screens fill" :data-switch="state.screenSwitch || null"><NowPlayingScreen /><CalendarScreen /><WeatherScreen /><ClockScreen /><PhotosScreen /><TodoScreen /><SettingsScreen /></div>
     <div class="page-notch" :class="{ on: slot >= 0 }" :style="{ transform: 'translateX(' + notchAt * 201 + 'px)' }" />
     <MeetingAlert />
     <ReminderAlert />

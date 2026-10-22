@@ -1,15 +1,19 @@
-// CarThingHelper — location, calendar and photos for the bridge. Lives in an .app bundle so macOS
-// can ask for (and remember) Location Services, Calendars and Photos permission under its own name.
+// CarThingHelper — location, calendar, reminders and photos for the bridge. Lives in an .app
+// bundle so macOS can ask for (and remember) Location Services, Calendars, Reminders and Photos
+// permission under its own name.
 //
 // stdin, one JSON object per line:
 //   {"id":1,"cmd":"status"}
 //   {"id":2,"cmd":"location"}                          prompts for permission the first time
 //   {"id":3,"cmd":"events","from":<ms>,"to":<ms>}      prompts for permission the first time
 //   {"id":4,"cmd":"calendars"}
+//   {"id":5,"cmd":"reminders","lists":[<id>]|null}     prompts for permission the first time
+//   {"id":6,"cmd":"reminderLists"}
 //   {"id":7,"cmd":"photo","album":<id>|null,"index":n}  prompts for permission the first time
 //   {"id":8,"cmd":"albums"}
 // stdout, one JSON object per line: replies carry the request's "id"; unsolicited notices
-// carry "event": "ready" | "calendarChanged" | "locationAuthorization" | "photosChanged".
+// carry "event": "ready" | "calendarChanged" (events or reminders) | "locationAuthorization" |
+// "photosChanged".
 
 import AppKit
 import CoreImage
@@ -99,6 +103,7 @@ final class Helper: NSObject, CLLocationManagerDelegate, PHPhotoLibraryChangeObs
   let geocoder = CLGeocoder()
   var locationWaiters: [Any] = []
   var askedForCalendar = false
+  var askedForReminders = false
   var askedForPhotos = false
   var watchingPhotos = false
   // Exporting a photo (and blurring its backdrop) happens off the main queue, one at a time, so
@@ -115,6 +120,7 @@ final class Helper: NSObject, CLLocationManagerDelegate, PHPhotoLibraryChangeObs
     super.init()
     locationManager.delegate = self
     locationManager.desiredAccuracy = kCLLocationAccuracyKilometer
+    // Fires for reminder changes too: the bridge's reminders feed listens for it as well.
     NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { _ in
       send(["event": "calendarChanged"])
     }
@@ -132,6 +138,17 @@ final class Helper: NSObject, CLLocationManagerDelegate, PHPhotoLibraryChangeObs
 
   var calendarStatus: String {
     switch EKEventStore.authorizationStatus(for: .event) {
+    case .notDetermined: return "notDetermined"
+    case .denied: return "denied"
+    case .restricted: return "restricted"
+    case .writeOnly: return "writeOnly"
+    case .fullAccess: return "authorized"
+    @unknown default: return "unknown"
+    }
+  }
+
+  var remindersStatus: String {
+    switch EKEventStore.authorizationStatus(for: .reminder) {
     case .notDetermined: return "notDetermined"
     case .denied: return "denied"
     case .restricted: return "restricted"
@@ -163,7 +180,7 @@ final class Helper: NSObject, CLLocationManagerDelegate, PHPhotoLibraryChangeObs
     case "status":
       send([
         "id": id, "ok": true, "location": locationStatus, "calendar": calendarStatus,
-        "photos": photosStatus,
+        "reminders": remindersStatus, "photos": photosStatus,
       ])
     case "location":
       location(id)
@@ -171,6 +188,10 @@ final class Helper: NSObject, CLLocationManagerDelegate, PHPhotoLibraryChangeObs
       events(id, from: msg["from"] as? Double ?? 0, to: msg["to"] as? Double ?? 0)
     case "calendars":
       calendars(id)
+    case "reminders":
+      reminders(id, lists: msg["lists"] as? [String])
+    case "reminderLists":
+      reminderLists(id)
     case "photo":
       photo(id, album: msg["album"] as? String, index: msg["index"] as? Int ?? 0)
     case "albums":
@@ -283,6 +304,74 @@ final class Helper: NSObject, CLLocationManagerDelegate, PHPhotoLibraryChangeObs
         ["id": cal.calendarIdentifier, "title": cal.title, "color": hex(cal.color), "account": cal.source.title]
       }
     send(["id": id, "ok": true, "status": "authorized", "calendars": list])
+  }
+
+  // MARK: Reminders
+
+  /// Incomplete reminders from the chosen lists (nil: every list): dated ones first, soonest due
+  /// first, then the undated in the order they were made.
+  func reminders(_ id: Any, lists: [String]?) {
+    let status = EKEventStore.authorizationStatus(for: .reminder)
+    if status == .notDetermined && !askedForReminders {
+      askedForReminders = true
+      store.requestFullAccessToReminders { _, _ in
+        DispatchQueue.main.async { self.reminders(id, lists: lists) }
+      }
+      return
+    }
+    guard status == .fullAccess else {
+      send(["id": id, "ok": false, "status": remindersStatus])
+      return
+    }
+    let calendars = lists.map { ids in store.calendars(for: .reminder).filter { ids.contains($0.calendarIdentifier) } }
+    // An empty array would read as "no filter" to EventKit; none chosen means none shown.
+    if calendars?.isEmpty == true {
+      send(["id": id, "ok": true, "status": "authorized", "reminders": []])
+      return
+    }
+    let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: calendars)
+    store.fetchReminders(matching: predicate) { found in
+      // EventKit calls back on its own queue; stdout and the store belong to the main one.
+      DispatchQueue.main.async {
+        let dated = (found ?? []).map { r -> (EKReminder, Date?) in
+          (r, r.dueDateComponents.flatMap { Calendar.current.date(from: $0) })
+        }
+        let sorted = dated.sorted { a, b in
+          switch (a.1, b.1) {
+          case let (x?, y?): return x < y
+          case (.some, nil): return true
+          case (nil, .some): return false
+          case (nil, nil): return (a.0.creationDate ?? .distantPast) < (b.0.creationDate ?? .distantPast)
+          }
+        }
+        let items = sorted.prefix(60).map { item -> [String: Any] in
+          let (r, due) = item
+          return [
+            "id": r.calendarItemIdentifier, "title": r.title ?? "",
+            "due": due.map { $0.timeIntervalSince1970 * 1000 as Any } ?? NSNull(),
+            "allDay": due != nil && r.dueDateComponents?.hour == nil,
+            "priority": r.priority,
+            "list": r.calendar.title, "listId": r.calendar.calendarIdentifier, "color": hex(r.calendar.color),
+          ]
+        }
+        // total counts past the 60 sent, so the screen's "+N more" and count stay true.
+        send(["id": id, "ok": true, "status": "authorized", "reminders": Array(items), "total": sorted.count])
+      }
+    }
+  }
+
+  /// Every reminder list on the Mac, for the settings page's choices.
+  func reminderLists(_ id: Any) {
+    guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else {
+      send(["id": id, "ok": false, "status": remindersStatus])
+      return
+    }
+    let list = store.calendars(for: .reminder)
+      .sorted { ($0.source.title, $0.title) < ($1.source.title, $1.title) }
+      .map { cal -> [String: Any] in
+        ["id": cal.calendarIdentifier, "title": cal.title, "color": hex(cal.color), "account": cal.source.title]
+      }
+    send(["id": id, "ok": true, "status": "authorized", "lists": list])
   }
 
   // MARK: Photos
@@ -439,7 +528,7 @@ final class Helper: NSObject, CLLocationManagerDelegate, PHPhotoLibraryChangeObs
 let helper = Helper()
 send([
   "event": "ready", "location": helper.locationStatus, "calendar": helper.calendarStatus,
-  "photos": helper.photosStatus,
+  "reminders": helper.remindersStatus, "photos": helper.photosStatus,
 ])
 
 Thread {

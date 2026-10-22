@@ -1392,6 +1392,26 @@ h3 {
   color: var(--photo-ink-2);
 }
 
+/* ===== todo ===== */
+/* Reminders (TodoScreen.vue): what's left to do from Apple Reminders, each with its list's colour
+   and when it's due. TodoScreen.vue drops rows into "+N more" until the list fits. */
+.td-row {
+  padding: 8px 0;
+}
+.td-row + .td-row {
+  margin-top: 16px;
+}
+.td-dot {
+  width: 12px;
+  height: 12px;
+  margin-right: 16px;
+  border-radius: 50%;
+  background: var(--text-2);
+}
+.td-due {
+  margin-left: 16px;
+}
+
 /* ===== settings ===== */
 /* Settings (fifth top button). Knob moves the selection, press changes it. */
 

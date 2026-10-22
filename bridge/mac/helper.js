@@ -5,10 +5,10 @@ import { createInterface } from 'node:readline';
 import { log } from '../log.js';
 
 /**
- * Talks to native/bin/CarThingHelper.app (location, calendar, photos). It runs as its own app so
- * macOS asks for and remembers Location Services / Calendars / Photos permission for
- * "Car Thing Helper". Emits 'calendarChanged', 'locationAuthorization' and 'photosChanged'
- * notices from the helper.
+ * Talks to native/bin/CarThingHelper.app (location, calendar, reminders, photos). It runs as its
+ * own app so macOS asks for and remembers Location Services / Calendars / Reminders / Photos
+ * permission for "Car Thing Helper". Emits 'calendarChanged' (events or reminders),
+ * 'locationAuthorization' and 'photosChanged' notices from the helper.
  */
 export class MacHelper extends EventEmitter {
   constructor(binDir) {
@@ -72,7 +72,7 @@ export class MacHelper extends EventEmitter {
     });
   }
 
-  /** @returns {Promise<{ok, location, calendar, photos}>} permission statuses */
+  /** @returns {Promise<{ok, location, calendar, reminders, photos}>} permission statuses */
   status() {
     return this.request('status', {}, 5000);
   }
@@ -90,6 +90,17 @@ export class MacHelper extends EventEmitter {
   /** Every event calendar on the Mac. @returns {Promise<{ok, status, calendars?: Array<{id, title, color, account}>}>} */
   calendars() {
     return this.request('calendars');
+  }
+
+  /** Incomplete reminders, from the lists named (null: every list).
+   *  @returns {Promise<{ok, status, reminders?: Array<{id, title, due, allDay, priority, list, listId, color}>}>} */
+  reminders(lists) {
+    return this.request('reminders', { lists: lists ?? null });
+  }
+
+  /** Every reminder list on the Mac. @returns {Promise<{ok, status, lists?: Array<{id, title, color, account}>}>} */
+  reminderLists() {
+    return this.request('reminderLists');
   }
 
   /** The Photos albums to choose from (never prompts). Counting every album's photos takes a moment.

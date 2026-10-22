@@ -27,7 +27,7 @@ export const config = {
   // Buttons → action. Keys are what the device reports to the page: top buttons 1–4, the
   // fifth (settings) button at the end of the top row (m) and the back button under the knob
   // (Escape — also closes Settings whatever it's mapped to).
-  // Actions: screen:<nowplaying|calendar|weather|clock|photos> | settings | favorite |
+  // Actions: screen:<nowplaying|calendar|weather|clock|photos|todo> | settings | favorite |
   // unfavorite (the playing Apple Music song) | previous | next | playpause | null
   // A screen: action on top buttons 1–4 opens whatever the Top buttons setting puts on that button
   // (Appearance on the Mac settings page); the names below are only what it starts as.
