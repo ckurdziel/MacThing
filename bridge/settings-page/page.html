@@ -158,7 +158,9 @@
       </section>
       <section>
         <h3 class="subhead">When no music is playing</h3>
-        <div class="row"><div><div class="label">Show</div><div class="note">Now Playing comes back when music starts</div></div>
+        <div class="row"><div><label class="label" for="rotateSeconds">Cycle screens</label><div class="note">Now Playing, Calendar, Weather and Clock in turn; a press or turn holds it for a minute</div></div>
+          <select id="rotateSeconds" data-key="rotateSeconds" data-type="number"><option value="0">Off</option><option value="15">Every 15 sec</option><option value="30">Every 30 sec</option><option value="60">Every 1 min</option><option value="120">Every 2 min</option></select></div>
+        <div class="row" id="idleShowRow"><div><div class="label">Show</div><div class="note">Now Playing comes back when music starts</div></div>
           <span class="seg" data-key="idleScreen" id="idleScreen"><button data-v="weather">Weather</button><button data-v="clock">Clock</button><button data-v="calendar">Calendar</button><button data-v="none">Date</button></span></div>
         <div class="row" id="idleAfterRow"><label class="label" for="idleMinutes">After</label>
           <select id="idleMinutes" data-key="idleMinutes" data-type="number"><option value="0" hidden>—</option><option value="1">1 min</option><option value="2">2 min</option><option value="5">5 min</option><option value="10">10 min</option></select></div>
@@ -274,8 +276,12 @@
     // "Date" (value none) is When idle's Never (idleMinutes 0): Now Playing stays, showing the date; Show after is the rest of idleMinutes.
     const idleOff = !s.idleMinutes;
     if (idleOff) $('#idleScreen').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === 'none')));
-    $('#idleMinutes').disabled = idleOff;
-    $('#idleAfterRow').classList.toggle('off', idleOff);
+    // Cycle screens replaces the idle switch while it's on.
+    const rotating = !!s.rotateSeconds;
+    $('#idleShowRow').classList.toggle('off', rotating);
+    $('#idleScreen').querySelectorAll('button').forEach((b) => { b.disabled = rotating; });
+    $('#idleMinutes').disabled = idleOff || rotating;
+    $('#idleAfterRow').classList.toggle('off', idleOff || rotating);
     const sleepsWhenLocked = s.screenSleep === 'mac';
     $('#whenLocked').disabled = sleepsWhenLocked;
     $('#whenLockedRow').classList.toggle('off', sleepsWhenLocked);
