@@ -13,6 +13,9 @@
 #  4. Runs device/dimmerd.sh as supervisord's `backlight` program instead of Spotify's
 #     sp-als-backlight: same brightness curve, but it waits for the room to stay darker before
 #     dimming, so a hand reaching for the controls (and over the light sensor) doesn't dim it.
+#  5. Turns Bluetooth off: it was for pairing with Spotify's phone app, which nothing here uses,
+#     so it's only something listening. bluetoothd no longer autostarts, and device/bluetooth-off.sh
+#     soft-blocks the radio at every boot (the firmware brings it up discoverable on its own).
 #
 # Undo everything with scripts/restore-device.sh.
 set -euo pipefail
@@ -25,6 +28,7 @@ serial=$(adb devices -l | awk '/spotify-car-thing|Car_Thing/ && $2=="device" {pr
 adb -s "$serial" shell 'mkdir -p /var/lib/carthing'
 adb -s "$serial" push "$here/../device/sleepd.sh" /var/lib/carthing/sleepd.sh >/dev/null
 adb -s "$serial" push "$here/../device/dimmerd.sh" /var/lib/carthing/dimmerd.sh >/dev/null
+adb -s "$serial" push "$here/../device/bluetooth-off.sh" /var/lib/carthing/bluetooth-off.sh >/dev/null
 
 adb -s "$serial" shell '
 set -e
@@ -78,6 +82,27 @@ if ! grep -q "^command=/bin/sh /var/lib/carthing/dimmerd.sh" /etc/supervisord.co
 else
   echo "• dimmer already installed"
 fi
+if sed -n "/^\[program:bluetoothd\]/,/^\[/p" /etc/supervisord.conf | grep -q "^autostart=true"; then
+  sed -i "/^\[program:bluetoothd\]/,/^\[/ s/^autostart=true/autostart=false/" /etc/supervisord.conf
+  echo "• bluetoothd no longer starts (nothing here uses Bluetooth)"
+else
+  echo "• bluetoothd already off"
+fi
+if ! grep -q "^\[program:carthing-bluetooth-off\]" /etc/supervisord.conf; then
+  cat >> /etc/supervisord.conf <<EOF
+
+[program:carthing-bluetooth-off]
+command=/bin/sh /var/lib/carthing/bluetooth-off.sh
+autostart=true
+autorestart=false
+startsecs=0
+stdout_logfile=/tmp/carthing-bluetooth-off.log
+redirect_stderr=true
+EOF
+  echo "• Bluetooth radio blocked at every boot"
+else
+  echo "• Bluetooth radio already blocked at boot"
+fi
 tmpmount=$(grep " /tmp " /proc/mounts || true)
 case "$tmpmount" in *tmpfs*) ;; *) echo "  warning: /tmp is not tmpfs — the heartbeat file would write to flash" ;; esac
 '
@@ -88,5 +113,7 @@ lit=yes
 supervisorctl status backlight 2>/dev/null | grep -q STOPPED && lit=no
 supervisorctl reread >/dev/null 2>&1; supervisorctl update >/dev/null 2>&1
 [ "$lit" = no ] && supervisorctl stop backlight >/dev/null 2>&1
-supervisorctl start carthing-sleep >/dev/null 2>&1; supervisorctl status carthing-sleep backlight'
+supervisorctl start carthing-sleep >/dev/null 2>&1; supervisorctl stop bluetoothd >/dev/null 2>&1
+supervisorctl start carthing-bluetooth-off >/dev/null 2>&1
+supervisorctl status carthing-sleep backlight bluetoothd carthing-bluetooth-off'
 echo "Done. Start the bridge (npm start) — it deploys the UI and takes over the screen."

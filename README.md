@@ -237,12 +237,13 @@ The device this was built on runs Spotify's final firmware, `v8.9.2`, community-
 - Weston compositor
 - 32-bit userland on a 64-bit kernel, 512 MB RAM
 
-`npm run setup-device` changes four things, and `npm run restore-device` reverts all of them:
+`npm run setup-device` changes five things, and `npm run restore-device` reverts all of them:
 
 - `/usr/share/qt-superbird-app/webapp` becomes a symlink to `/var/lib/carthing/ui`. Spotify's original is kept as `webapp.spotify`.
 - Spotify's background app (`qt-superbird-app`) no longer autostarts. It was using about 15% CPU on wake-word listening and Bluetooth pairing. The original config is kept as `/etc/supervisord.conf.spotify`.
 - `device/sleepd.sh` is installed at `/var/lib/carthing/sleepd.sh` and registered with supervisord as `carthing-sleep`, so the device can sleep without the Mac (below). The bridge keeps the script and its `sleep.conf` up to date on every connect; `supervisorctl status carthing-sleep` and `/tmp/carthing-sleep.log` on the device show what it's doing.
 - supervisord's `backlight` program runs `device/dimmerd.sh` (installed at `/var/lib/carthing/dimmerd.sh`) instead of Spotify's `sp-als-backlight`. See [Auto-brightness](#auto-brightness).
+- Bluetooth is off: supervisord no longer starts `bluetoothd`, and `device/bluetooth-off.sh` (supervisord's `carthing-bluetooth-off`, run once per boot) soft-blocks the radio with rfkill, because the firmware otherwise brings it up discoverable on its own. It was for pairing with Spotify's phone app; nothing in MacThing uses it, so leaving it on was only one more thing listening. Re-run `npm run setup-device` on a device set up before this.
 
 ### Auto-brightness
 
