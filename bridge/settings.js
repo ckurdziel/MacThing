@@ -10,7 +10,7 @@ import { DAY_MINUTES, EVERY_MINUTES, MAX_REMINDERS, MAX_TEXT, MAX_TIMES } from '
 const FILE = path.join(os.homedir(), 'Library', 'Application Support', 'carthing-now-playing', 'settings.json');
 
 // Every screen a top button can open.
-export const SCREENS = ['nowplaying', 'calendar', 'weather', 'clock'];
+export const SCREENS = ['nowplaying', 'calendar', 'weather', 'clock', 'photos'];
 
 export const DEFAULTS = {
   theme: 'dark', // 'dark' | 'light' | 'auto' (follow the Mac's appearance)
@@ -30,6 +30,8 @@ export const DEFAULTS = {
   idleScreen: 'clock', // any of SCREENS but 'nowplaying'
   rotateSeconds: 0, // nothing playing: step through the top buttons' screens every this many seconds (0 = off)
   screens: ['nowplaying', 'calendar', 'weather', 'clock'], // what top buttons 1–4 open: four different SCREENS
+  photosAlbum: null, // the Photos screen's album: a Photos album id, or null = Favorites
+  photosSeconds: 30, // how long each photo stays up on the Photos screen
   // When the screen turns off: 'mac' = while the Mac's display sleeps or the Mac is locked |
   // minutes the Mac has been idle (no keyboard or mouse, like a screen saver) | 'never'
   screenSleep: 'mac',
@@ -62,6 +64,8 @@ const VALID = {
   idleScreen: (v) => SCREENS.includes(v) && v !== 'nowplaying',
   rotateSeconds: (v) => [0, 15, 30, 60, 120].includes(v),
   screens: (v) => Array.isArray(v) && v.length === 4 && new Set(v).size === 4 && v.every((s) => SCREENS.includes(s)),
+  photosAlbum: (v) => v === null || (typeof v === 'string' && v.length > 0),
+  photosSeconds: (v) => [10, 20, 30, 60, 300].includes(v),
   screenSleep: (v) => ['mac', 30, 60, 120, 240, 'never'].includes(v),
   whenLocked: (v) => v === 'unlocked' || SCREENS.includes(v),
   reminders: (v) =>

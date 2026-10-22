@@ -44,12 +44,12 @@
   .seg button { border: 0; background: none; color: var(--text); font: inherit; font-size: 14px;
     padding: 5px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
   .seg button[aria-pressed="true"] { background: var(--seg-on); box-shadow: 0 1px 3px rgba(0,0,0,.15); font-weight: 600; }
-  select[data-key], select.slot, .rem select { flex-shrink: 0; max-width: 100%; min-height: 34px; padding: 6px 34px 6px 12px;
+  select[data-key], select.slot, #photosAlbum, .rem select { flex-shrink: 0; max-width: 100%; min-height: 34px; padding: 6px 34px 6px 12px;
     font: inherit; font-size: 14px; color: var(--text); background: var(--seg);
     border: 1px solid var(--line); border-radius: 9px; outline-color: var(--accent); color-scheme: light;
     appearance: none; -webkit-appearance: none; background-image: var(--select-arrow);
     background-repeat: no-repeat; background-position: right 12px center; background-size: 12px 12px; }
-  @media (prefers-color-scheme: dark) { select[data-key], select.slot, .rem select { color-scheme: dark; } }
+  @media (prefers-color-scheme: dark) { select[data-key], select.slot, #photosAlbum, .rem select { color-scheme: dark; } }
   .rem { padding: 10px 0; }
   .rem + .rem { border-top: 1px solid var(--line); }
   .rem-main { display: flex; align-items: center; gap: 10px; }
@@ -134,6 +134,7 @@
       <a href="#calendar">Calendar</a>
       <a href="#weather">Weather</a>
       <a href="#clock">Clock</a>
+      <a href="#photos">Photos</a>
       <a href="#usage">AI usage</a>
       <a href="#reminders">Reminders</a>
     </nav>
@@ -162,14 +163,14 @@
         <div class="row"><div><label class="label" for="screenSleep">Sleep</label><div class="note">With Mac: when the Mac’s display sleeps or the Mac locks. Idle: no keyboard or mouse on the Mac</div></div>
           <select id="screenSleep" data-key="screenSleep" data-type="number"><option value="mac">With Mac</option><option value="30">Mac idle 30 min</option><option value="60">Mac idle 1 hr</option><option value="120">Mac idle 2 hr</option><option value="240">Mac idle 4 hr</option><option value="never">Never</option></select></div>
         <div class="row" id="whenLockedRow"><div><label class="label" for="whenLocked">When Mac is locked</label><div class="note" id="whenLockedNote"></div></div>
-          <select id="whenLocked" data-key="whenLocked"><option value="unlocked">Everything works</option><option value="nowplaying">Now Playing only</option><option value="weather">Weather only</option><option value="calendar">Calendar only</option><option value="clock">Clock only</option></select></div>
+          <select id="whenLocked" data-key="whenLocked"><option value="unlocked">Everything works</option><option value="nowplaying">Now Playing only</option><option value="weather">Weather only</option><option value="calendar">Calendar only</option><option value="clock">Clock only</option><option value="photos">Photos only</option></select></div>
       </section>
       <section>
         <h3 class="subhead">When no music is playing</h3>
         <div class="row"><div><label class="label" for="rotateSeconds">Cycle screens</label><div class="note">The top buttons’ screens in turn; a press or turn holds it for a minute</div></div>
           <select id="rotateSeconds" data-key="rotateSeconds" data-type="number"><option value="0">Off</option><option value="15">Every 15 sec</option><option value="30">Every 30 sec</option><option value="60">Every 1 min</option><option value="120">Every 2 min</option></select></div>
         <div class="row" id="idleShowRow"><div><div class="label">Show</div><div class="note">Now Playing comes back when music starts</div></div>
-          <span class="seg" data-key="idleScreen" id="idleScreen"><button data-v="weather">Weather</button><button data-v="clock">Clock</button><button data-v="calendar">Calendar</button><button data-v="none">Date</button></span></div>
+          <span class="seg" data-key="idleScreen" id="idleScreen"><button data-v="weather">Weather</button><button data-v="clock">Clock</button><button data-v="calendar">Calendar</button><button data-v="photos">Photos</button><button data-v="none">Date</button></span></div>
         <div class="row" id="idleAfterRow"><label class="label" for="idleMinutes">After</label>
           <select id="idleMinutes" data-key="idleMinutes" data-type="number"><option value="0" hidden>—</option><option value="1">1 min</option><option value="2">2 min</option><option value="5">5 min</option><option value="10">10 min</option></select></div>
       </section>
@@ -221,6 +222,16 @@
           <span class="seg" data-key="clockFace"><button data-v="analog">Analog</button><button data-v="numbers">Numbers</button><button data-v="digital">Digital</button></span></div>
         <div class="row"><span class="label">Time format</span>
           <span class="seg" data-key="clock24h"><button data-v="false">12-hour</button><button data-v="true">24-hour</button></span></div>
+      </section>
+    </div>
+
+    <div class="settings-panel" id="photos" hidden role="region" aria-labelledby="category-title">
+      <section>
+        <h3 class="subhead">Photos screen</h3>
+        <div class="row"><div><label class="label" for="photosAlbum">Album</label><div class="note" id="photosNote"></div></div>
+          <select id="photosAlbum"></select></div>
+        <div class="row"><label class="label" for="photosSeconds">Each photo</label>
+          <select id="photosSeconds" data-key="photosSeconds" data-type="number"><option value="10">10 sec</option><option value="20">20 sec</option><option value="30">30 sec</option><option value="60">1 min</option><option value="300">5 min</option></select></div>
       </section>
     </div>
 
@@ -310,6 +321,7 @@
         : 'macOS will ask for permission the first time.';
 
     renderSlots();
+    renderAlbums();
     renderCalendars();
     renderReminders();
   }
@@ -550,7 +562,7 @@
 
   // The top buttons' screens. Each screen is on one button at most, so picking one that another
   // button has swaps the two.
-  const SCREEN_NAMES = { nowplaying: 'Now Playing', calendar: 'Calendar', weather: 'Weather', clock: 'Clock' };
+  const SCREEN_NAMES = { nowplaying: 'Now Playing', calendar: 'Calendar', weather: 'Weather', clock: 'Clock', photos: 'Photos' };
   const slots = [0, 1, 2, 3].map((i) => $(`#slot${i}`));
   slots.forEach((select, i) => {
     select.replaceChildren(...Object.entries(SCREEN_NAMES).map(([v, name]) => new Option(name, v)));
@@ -565,6 +577,45 @@
   function renderSlots() {
     slots.forEach((select, i) => { select.value = state.settings.screens[i]; });
   }
+
+  // The Photos screen's album. Rebuilt only when the albums change, so the 3-second refresh
+  // doesn't close the menu under the pointer.
+  let albumsShown = '';
+  function renderAlbums() {
+    const photos = state.photos || {};
+    const albums = photos.albums || [];
+    const select = $('#photosAlbum');
+    const shown = JSON.stringify(albums);
+    if (shown !== albumsShown) {
+      albumsShown = shown;
+      const option = (a) => new Option(`${a.title} (${a.count})`, a.id);
+      const groups = [['smart', 'Library'], ['user', 'My Albums'], ['shared', 'Shared Albums']].map(([kind, title]) => {
+        const group = document.createElement('optgroup');
+        group.label = title;
+        group.append(...albums.filter((a) => a.kind === kind).map(option));
+        return group;
+      }).filter((group) => group.children.length);
+      select.replaceChildren(...groups);
+    }
+    const chosen = state.settings.photosAlbum;
+    // Favorites (null) is the first smart album; a chosen album that's gone shows Favorites too.
+    const favorites = albums.find((a) => a.kind === 'smart');
+    select.value = chosen && albums.some((a) => a.id === chosen) ? chosen : favorites ? favorites.id : '';
+    select.disabled = !albums.length;
+    const allowed = photos.status === 'authorized' || photos.status === 'limited';
+    const note = $('#photosNote');
+    note.classList.toggle('warn', photos.status === 'denied' || photos.status === 'restricted');
+    note.textContent =
+      photos.status === 'denied' || photos.status === 'restricted'
+        ? 'Photos access is off for “Car Thing Helper”. Turn it on in System Settings → Privacy & Security → Photos.'
+      : !allowed ? 'macOS will ask for permission when the Photos screen first loads. Put it on a top button to start.'
+      : photos.status === 'limited' ? 'Only the photos you’ve shared with “Car Thing Helper”.'
+      : 'Shown in shuffled order.';
+  }
+  $('#photosAlbum').addEventListener('change', () => {
+    const favorites = (state.photos?.albums || []).find((a) => a.kind === 'smart');
+    save({ photosAlbum: favorites && $('#photosAlbum').value === favorites.id ? null : $('#photosAlbum').value });
+  });
 
   // Which calendars feed the device. null means every one, so calendars added later come along too.
   function renderCalendars() {

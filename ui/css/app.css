@@ -212,6 +212,9 @@
   --cloud: var(--white);
   --cloud-back: var(--slate-300);
   --rain: var(--sky-300);
+  --photo-ink: var(--white); /* the time over a photo, in every theme: the photo is its background */
+  --photo-ink-2: var(--white-a70);
+  --photo-shadow: var(--black-a50);
 }
 #app.light {
   --panel: var(--gray-200);
@@ -1348,6 +1351,45 @@ h3 {
 }
 .k-day + .k-event {
   margin-top: 12px;
+}
+
+/* ===== photos ===== */
+/* Photos: one photo across the whole screen, no rail (PhotosScreen.vue). The Mac sends it ready to
+   show: a wide one cropped to the screen, anything taller fitted over a blurred copy of itself,
+   so the device never blurs or scales. Two layers, so photos crossfade like the album art. */
+.ph-frame {
+  z-index: 0;
+}
+.ph-layer {
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+.ph-layer.front {
+  opacity: 1;
+  z-index: 1;
+}
+.ph-layer.under {
+  opacity: 1;
+}
+.ph-img {
+  background: center / cover no-repeat;
+}
+.ph-img.fitted {
+  background-size: contain;
+}
+/* The time in the corner, with a soft shadow so it reads over a bright photo. */
+.ph-caption {
+  position: absolute;
+  left: var(--panel-inset-x);
+  bottom: 20px;
+  color: var(--photo-ink);
+  text-shadow: 0 1px 6px var(--photo-shadow);
+}
+.ph-ampm {
+  margin-left: 6px;
+}
+.ph-date {
+  color: var(--photo-ink-2);
 }
 
 /* ===== settings ===== */

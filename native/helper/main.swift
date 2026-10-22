@@ -1,17 +1,23 @@
-// CarThingHelper — location + calendar for the bridge. Lives in an .app bundle so macOS can ask
-// for (and remember) Location Services and Calendars permission under its own name.
+// CarThingHelper — location, calendar and photos for the bridge. Lives in an .app bundle so macOS
+// can ask for (and remember) Location Services, Calendars and Photos permission under its own name.
 //
 // stdin, one JSON object per line:
 //   {"id":1,"cmd":"status"}
 //   {"id":2,"cmd":"location"}                          prompts for permission the first time
 //   {"id":3,"cmd":"events","from":<ms>,"to":<ms>}      prompts for permission the first time
+//   {"id":4,"cmd":"calendars"}
+//   {"id":7,"cmd":"photo","album":<id>|null,"index":n}  prompts for permission the first time
+//   {"id":8,"cmd":"albums"}
 // stdout, one JSON object per line: replies carry the request's "id"; unsolicited notices
-// carry "event": "ready" | "calendarChanged" | "locationAuthorization".
+// carry "event": "ready" | "calendarChanged" | "locationAuthorization" | "photosChanged".
 
 import AppKit
+import CoreImage
 import CoreLocation
 import EventKit
 import Foundation
+import ImageIO
+import Photos
 
 // Be our own "responsible process" so permissions attach to this app, not to node/launchd.
 // Re-execs in place (same pid and stdio) with the private disclaim spawn attribute.
@@ -59,12 +65,51 @@ func callLink(_ ev: EKEvent) -> String? {
   return nil
 }
 
-final class Helper: NSObject, CLLocationManagerDelegate {
+// The device's screen, which a photo is fitted or cropped to.
+let screenWidth = 800, screenHeight = 480
+let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+
+/// Draws `image` at `rect` into a width×height sRGB bitmap (a rect overhanging it crops).
+func render(_ image: CGImage, width: Int, height: Int, at rect: CGRect) -> CGImage? {
+  guard let ctx = CGContext(
+    data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: srgb,
+    bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+  else { return nil }
+  ctx.interpolationQuality = .high
+  ctx.draw(image, in: rect)
+  return ctx.makeImage()
+}
+
+/// The rect that fills width×height with `image`, centred, cropping whatever overhangs.
+func coverRect(_ image: CGImage, width: Int, height: Int) -> CGRect {
+  let w = CGFloat(image.width), h = CGFloat(image.height)
+  let scale = max(CGFloat(width) / w, CGFloat(height) / h)
+  return CGRect(x: (CGFloat(width) - w * scale) / 2, y: (CGFloat(height) - h * scale) / 2, width: w * scale, height: h * scale)
+}
+
+func writeJPEG(_ image: CGImage, to url: URL) -> Bool {
+  guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil) else { return false }
+  CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+  return CGImageDestinationFinalize(dest)
+}
+
+final class Helper: NSObject, CLLocationManagerDelegate, PHPhotoLibraryChangeObserver {
   let store = EKEventStore()
   let locationManager = CLLocationManager()
   let geocoder = CLGeocoder()
   var locationWaiters: [Any] = []
   var askedForCalendar = false
+  var askedForPhotos = false
+  var watchingPhotos = false
+  // Exporting a photo (and blurring its backdrop) happens off the main queue, one at a time, so
+  // other commands aren't held up behind an iCloud download.
+  let photoQueue = DispatchQueue(label: "com.carthing.helper.photo")
+  let ciContext = CIContext(options: [.workingColorSpace: srgb, .outputColorSpace: srgb])
+  lazy var photoDir: URL = {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("carthing-photos", isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+  }()
 
   override init() {
     super.init()
@@ -73,6 +118,7 @@ final class Helper: NSObject, CLLocationManagerDelegate {
     NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { _ in
       send(["event": "calendarChanged"])
     }
+    watchPhotos()
   }
 
   var locationStatus: String {
@@ -95,17 +141,40 @@ final class Helper: NSObject, CLLocationManagerDelegate {
     }
   }
 
+  var photosStatus: String {
+    switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
+    case .notDetermined: return "notDetermined"
+    case .denied: return "denied"
+    case .restricted: return "restricted"
+    case .limited: return "limited"
+    case .authorized: return "authorized"
+    @unknown default: return "unknown"
+    }
+  }
+
+  var photosReadable: Bool {
+    let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    return status == .authorized || status == .limited
+  }
+
   func handle(_ msg: [String: Any]) {
     let id = msg["id"] ?? NSNull()
     switch msg["cmd"] as? String {
     case "status":
-      send(["id": id, "ok": true, "location": locationStatus, "calendar": calendarStatus])
+      send([
+        "id": id, "ok": true, "location": locationStatus, "calendar": calendarStatus,
+        "photos": photosStatus,
+      ])
     case "location":
       location(id)
     case "events":
       events(id, from: msg["from"] as? Double ?? 0, to: msg["to"] as? Double ?? 0)
     case "calendars":
       calendars(id)
+    case "photo":
+      photo(id, album: msg["album"] as? String, index: msg["index"] as? Int ?? 0)
+    case "albums":
+      albums(id)
     default:
       send(["id": id, "ok": false, "error": "unknown command"])
     }
@@ -215,10 +284,163 @@ final class Helper: NSObject, CLLocationManagerDelegate {
       }
     send(["id": id, "ok": true, "status": "authorized", "calendars": list])
   }
+
+  // MARK: Photos
+
+  /// Change notices only once we may read the library: registering before that can prompt.
+  func watchPhotos() {
+    guard !watchingPhotos, photosReadable else { return }
+    watchingPhotos = true
+    PHPhotoLibrary.shared().register(self)
+  }
+
+  func photoLibraryDidChange(_ changeInstance: PHChange) {
+    DispatchQueue.main.async { send(["event": "photosChanged"]) }
+  }
+
+  var favorites: PHAssetCollection? {
+    PHAssetCollection.fetchAssetCollections(with: .smartAlbum, subtype: .smartAlbumFavorites, options: nil).firstObject
+  }
+
+  /// Still images only, oldest first, so an index means the same photo until the album changes.
+  func imageOptions(sorted: Bool) -> PHFetchOptions {
+    let options = PHFetchOptions()
+    options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+    if sorted { options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)] }
+    return options
+  }
+
+  /// The albums the settings page offers: Favorites, Recents, then your albums, then shared ones.
+  func albums(_ id: Any) {
+    guard photosReadable else {
+      send(["id": id, "ok": false, "status": photosStatus])
+      return
+    }
+    watchPhotos()  // access granted in System Settings since we started
+    let images = imageOptions(sorted: false)
+    var list: [[String: Any]] = []
+    func add(_ c: PHAssetCollection?, kind: String, keepEmpty: Bool = true) {
+      guard let c else { return }
+      let count = PHAsset.fetchAssets(in: c, options: images).count
+      if count == 0 && !keepEmpty { return }
+      list.append(["id": c.localIdentifier, "title": c.localizedTitle ?? "", "count": count, "kind": kind])
+    }
+    func fetch(_ type: PHAssetCollectionType, _ subtype: PHAssetCollectionSubtype) -> [PHAssetCollection] {
+      var found: [PHAssetCollection] = []
+      PHAssetCollection.fetchAssetCollections(with: type, subtype: subtype, options: nil).enumerateObjects { c, _, _ in found.append(c) }
+      return found.sorted { ($0.localizedTitle ?? "").localizedStandardCompare($1.localizedTitle ?? "") == .orderedAscending }
+    }
+    add(favorites, kind: "smart")
+    add(PHAssetCollection.fetchAssetCollections(with: .smartAlbum, subtype: .smartAlbumUserLibrary, options: nil).firstObject,
+      kind: "smart", keepEmpty: false)
+    for c in fetch(.album, .albumRegular) { add(c, kind: "user") }
+    for c in fetch(.album, .albumCloudShared) { add(c, kind: "shared") }
+    send(["id": id, "ok": true, "status": photosStatus, "albums": list])
+  }
+
+  /// Photo `index` (wrapped to the album's size) of the album (nil: Favorites), written out ready
+  /// for the screen. Wide photos are cropped to fill it; the rest are fitted inside it, with a
+  /// blurred, cropped copy to go behind them.
+  func photo(_ id: Any, album: String?, index: Int) {
+    if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .notDetermined && !askedForPhotos {
+      askedForPhotos = true
+      PHPhotoLibrary.requestAuthorization(for: .readWrite) { _ in
+        DispatchQueue.main.async {
+          self.watchPhotos()
+          self.photo(id, album: album, index: index)
+        }
+      }
+      return
+    }
+    guard photosReadable else {
+      send(["id": id, "ok": false, "status": photosStatus])
+      return
+    }
+    watchPhotos()
+    let collection = album.map { PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [$0], options: nil).firstObject } ?? favorites
+    guard let collection else {
+      send(["id": id, "ok": false, "status": photosStatus, "error": "album not found"])
+      return
+    }
+    let assets = PHAsset.fetchAssets(in: collection, options: imageOptions(sorted: true))
+    let count = assets.count
+    guard count > 0 else {
+      send(["id": id, "ok": true, "status": photosStatus, "count": 0, "album": collection.localizedTitle ?? ""])
+      return
+    }
+    let i = ((index % count) + count) % count
+    let asset = assets.object(at: i)
+    let options = PHImageRequestOptions()
+    options.isNetworkAccessAllowed = true  // originals that only live in iCloud
+    options.deliveryMode = .highQualityFormat  // one callback, never a blurry placeholder first
+    options.resizeMode = .fast
+    let base: [String: Any] = [
+      "id": id, "count": count, "index": i, "album": collection.localizedTitle ?? "",
+      "date": asset.creationDate.map { $0.timeIntervalSince1970 * 1000 as Any } ?? NSNull(),
+    ]
+    // PhotoKit hands back the photo already turned upright, so EXIF orientation needs nothing more.
+    PHImageManager.default().requestImage(
+      for: asset, targetSize: CGSize(width: 1600, height: 1600), contentMode: .aspectFit, options: options
+    ) { image, info in
+      self.photoQueue.async {
+        var reply = base
+        if let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil), let out = self.layout(cg) {
+          reply["ok"] = true
+          reply["status"] = "authorized"
+          reply.merge(out) { $1 }
+        } else {
+          reply["ok"] = false
+          reply["status"] = "error"
+          reply["error"] = (info?[PHImageErrorKey] as? Error)?.localizedDescription
+            ?? ((info?[PHImageResultIsInCloudKey] as? Bool) == true ? "could not download from iCloud" : "could not read the photo")
+        }
+        DispatchQueue.main.async { send(reply) }
+      }
+    }
+  }
+
+  /// Writes the screen-ready JPEG(s) for `image`: {path, blurPath, width, height}.
+  func layout(_ image: CGImage) -> [String: Any]? {
+    let name = UUID().uuidString
+    let path = photoDir.appendingPathComponent("\(name).jpg")
+    let w = CGFloat(image.width), h = CGFloat(image.height)
+    guard w > 0, h > 0 else { return nil }
+    if w / h >= 1.2 {
+      guard let cover = render(image, width: screenWidth, height: screenHeight, at: coverRect(image, width: screenWidth, height: screenHeight)),
+        writeJPEG(cover, to: path)
+      else { return nil }
+      return ["path": path.path, "blurPath": NSNull(), "width": screenWidth, "height": screenHeight]
+    }
+    // Fitted: portrait photos are the screen's height, squarer ones whichever side runs out first.
+    let scale = min(CGFloat(screenWidth) / w, CGFloat(screenHeight) / h)
+    let fw = max(1, Int((w * scale).rounded())), fh = max(1, Int((h * scale).rounded()))
+    guard let fitted = render(image, width: fw, height: fh, at: CGRect(x: 0, y: 0, width: fw, height: fh)),
+      writeJPEG(fitted, to: path)
+    else { return nil }
+    let blurURL = photoDir.appendingPathComponent("\(name).blur.jpg")
+    let blurPath: Any = backdrop(image, to: blurURL) ? blurURL.path : NSNull()
+    return ["path": path.path, "blurPath": blurPath, "width": fw, "height": fh]
+  }
+
+  /// The photo filling the screen, blurred: drawn at a quarter size first, where the blur is cheap
+  /// and loses nothing, then scaled back up to the screen.
+  func backdrop(_ image: CGImage, to url: URL) -> Bool {
+    let small = 4, sw = screenWidth / small, sh = screenHeight / small
+    guard let tiny = render(image, width: sw, height: sh, at: coverRect(image, width: sw, height: sh)) else { return false }
+    let blurred = CIImage(cgImage: tiny).clampedToExtent()
+      .applyingGaussianBlur(sigma: 40 / Double(small))
+      .transformed(by: CGAffineTransform(scaleX: CGFloat(small), y: CGFloat(small)))
+      .cropped(to: CGRect(x: 0, y: 0, width: screenWidth, height: screenHeight))
+    guard let out = ciContext.createCGImage(blurred, from: blurred.extent) else { return false }
+    return writeJPEG(out, to: url)
+  }
 }
 
 let helper = Helper()
-send(["event": "ready", "location": helper.locationStatus, "calendar": helper.calendarStatus])
+send([
+  "event": "ready", "location": helper.locationStatus, "calendar": helper.calendarStatus,
+  "photos": helper.photosStatus,
+])
 
 Thread {
   while let line = readLine() {

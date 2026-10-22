@@ -5,9 +5,10 @@ import { createInterface } from 'node:readline';
 import { log } from '../log.js';
 
 /**
- * Talks to native/bin/CarThingHelper.app (location + calendar). It runs as its own app so
- * macOS asks for and remembers Location Services / Calendars permission for "Car Thing Helper".
- * Emits 'calendarChanged' and 'locationAuthorization' notices from the helper.
+ * Talks to native/bin/CarThingHelper.app (location, calendar, photos). It runs as its own app so
+ * macOS asks for and remembers Location Services / Calendars / Photos permission for
+ * "Car Thing Helper". Emits 'calendarChanged', 'locationAuthorization' and 'photosChanged'
+ * notices from the helper.
  */
 export class MacHelper extends EventEmitter {
   constructor(binDir) {
@@ -71,6 +72,7 @@ export class MacHelper extends EventEmitter {
     });
   }
 
+  /** @returns {Promise<{ok, location, calendar, photos}>} permission statuses */
   status() {
     return this.request('status', {}, 5000);
   }
@@ -88,5 +90,21 @@ export class MacHelper extends EventEmitter {
   /** Every event calendar on the Mac. @returns {Promise<{ok, status, calendars?: Array<{id, title, color, account}>}>} */
   calendars() {
     return this.request('calendars');
+  }
+
+  /** The Photos albums to choose from (never prompts). Counting every album's photos takes a moment.
+   *  @returns {Promise<{ok, status, albums?: Array<{id, title, count, kind: 'smart'|'user'|'shared'}>}>} */
+  albums() {
+    return this.request('albums', {}, 30000);
+  }
+
+  /**
+   * Photo `index` (wrapped to the album's size) of `album` (null: Favorites), written to temp
+   * JPEGs the caller deletes. The default timeout covers both the permission prompt and an
+   * original that has to come down from iCloud first.
+   * @returns {Promise<{ok, status, count?, index?, album?, path?, blurPath?, width?, height?, date?}>}
+   */
+  photo(album, index) {
+    return this.request('photo', { album: album ?? null, index });
   }
 }

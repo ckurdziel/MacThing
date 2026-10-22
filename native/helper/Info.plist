@@ -15,5 +15,6 @@
   <key>NSLocationWhenInUseUsageDescription</key><string>Your location is used to show local weather on the Car Thing.</string>
   <key>NSCalendarsFullAccessUsageDescription</key><string>Your upcoming events are shown on the Car Thing's calendar screen.</string>
   <key>NSCalendarsUsageDescription</key><string>Your upcoming events are shown on the Car Thing's calendar screen.</string>
+  <key>NSPhotoLibraryUsageDescription</key><string>Photos from the album you choose are shown on the Car Thing's Photos screen.</string>
 </dict>
 </plist>

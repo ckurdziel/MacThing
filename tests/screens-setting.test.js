@@ -32,14 +32,14 @@ test('top buttons take four different known screens, or keep what they had', () 
     'photos',
   ]) assert.equal(settings.update({ screens }), false, JSON.stringify(screens));
   assert.deepEqual(settings.get().screens, defaults);
-  assert.equal(settings.update({ screens: ['weather', 'clock', 'nowplaying', 'calendar'] }), true);
-  assert.deepEqual(settings.get().screens, ['weather', 'clock', 'nowplaying', 'calendar']);
+  assert.equal(settings.update({ screens: ['photos', 'clock', 'nowplaying', 'weather'] }), true);
+  assert.deepEqual(settings.get().screens, ['photos', 'clock', 'nowplaying', 'weather']);
 `));
 
 test('a saved screen list that no longer validates falls back to the default', () => withSettings(
-  { screens: ['nowplaying', 'clock', 'clock', 'weather'], idleScreen: 'weather', whenLocked: 'clock' }, `
+  { screens: ['nowplaying', 'clock', 'clock', 'weather'], idleScreen: 'photos', whenLocked: 'clock' }, `
   assert.deepEqual(settings.get().screens, ['nowplaying', 'calendar', 'weather', 'clock']);
-  assert.equal(settings.get().idleScreen, 'weather');
+  assert.equal(settings.get().idleScreen, 'photos');
   assert.equal(settings.get().whenLocked, 'clock');
   assert.equal(settings.update({ idleScreen: 'nowplaying' }), false);
 `));

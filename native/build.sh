@@ -70,7 +70,7 @@ HELPER_BIN="$APP/Contents/MacOS/CarThingHelper"
 HELPER_SRC=("$ROOT/native/helper/main.swift" "$ROOT/native/helper/Info.plist")
 # The stamp sits beside the bundle, not in it, so it isn't part of the signature.
 if needs_build "$HELPER_BIN" "$APP.srchash" $HELPER_SRC; then
-  echo "• CarThingHelper.app (location + calendar) — macOS will ask for permissions again"
+  echo "• CarThingHelper.app (location, calendar, photos) — macOS will ask for permissions again"
   mkdir -p "$APP/Contents/MacOS"
   cp "$ROOT/native/helper/Info.plist" "$APP/Contents/Info.plist"
   swiftc -O -o "$HELPER_BIN" "$ROOT/native/helper/main.swift"

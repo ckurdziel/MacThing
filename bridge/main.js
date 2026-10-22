@@ -25,6 +25,7 @@ import { settings } from './settings.js';
 import { startSettingsPage } from './settings-page/server.js';
 import { Calendar } from './widgets/calendar.js';
 import { PerpetualCover } from './widgets/perpetual.js';
+import { PhotosFeed } from './widgets/photos.js';
 import { ClaudeUsage } from './widgets/usage.js';
 import { CodexUsage } from './widgets/codex-usage.js';
 import { Weather } from './widgets/weather.js';
@@ -43,6 +44,8 @@ const helper = new MacHelper(paths.bin);
 const weather = new Weather(helper, settings);
 const calendar = new Calendar(helper, settings);
 const perpetual = new PerpetualCover(path.join(paths.bin, 'artwork'), { blur: config.ambientBlurOnMac });
+// The Photos screen only reads the Mac (and so only asks for access) while in use.
+const photos = new PhotosFeed(helper, settings, { inUse: () => screenInUse('photos') });
 // Settings → Usage: only the providers it names are read (none: no Keychain or Codex logs at all).
 const wantsUsage = (provider) => [provider, 'both'].includes(settings.get().usageSource);
 const usage = new ClaudeUsage({ enabled: () => wantsUsage('claude') });
@@ -147,6 +150,7 @@ const tickMessage = () => ({ type: 'tick', now: Date.now(), tzMinutes: -new Date
 
 function pushAll(target) {
   target.sentArtKey = null; // page (re)loaded: it has no artwork cached
+  photos.setVisible(false); // a fresh page says when it shows the Photos screen
   target.send({
     type: 'config',
     config: {
@@ -171,6 +175,7 @@ function pushAll(target) {
   target.send({ type: 'weather', weather: weather.state });
   target.send({ type: 'calendar', calendar: calendar.state });
   target.send({ type: 'perpetual', perpetual: perpetual.state });
+  target.send({ type: 'photo', photo: photos.state });
   target.send({ type: 'usage', usage: usage.state });
   target.send({ type: 'chatgptUsage', usage: chatgptUsage.state });
   target.send({ type: 'screen', on: screenOn !== false }); // the page may have gone dark by itself
@@ -204,6 +209,12 @@ function screenShouldBeOn() {
 function lockedScreen() {
   const s = settings.get();
   return power.locked && s.screenSleep !== 'mac' && s.whenLocked !== 'unlocked' ? s.whenLocked : null;
+}
+
+/** A screen the device can show: a top button opens it, or it's shown when idle or while locked. */
+function screenInUse(name) {
+  const s = settings.get();
+  return s.screens.includes(name) || (s.idleMinutes > 0 && s.idleScreen === name) || s.whenLocked === name;
 }
 let sentLock;
 /** Tells the device which screen it's held on; only on a change unless `target` is a fresh page. */
@@ -239,11 +250,15 @@ function heartbeat() {
 
 async function macStatus() {
   const s = await helper.status().catch(() => ({}));
-  // The list is for the settings page's calendar checkboxes; it's empty until access is granted.
-  const cals = await helper.calendars().catch(() => ({}));
+  // The lists are for the settings page's checkboxes; they're empty until access is granted.
+  const [cals, album] = await Promise.all([
+    helper.calendars().catch(() => ({})),
+    photos.albumsStatus(s.photos), // cached: counting every album's photos is too slow for each poll
+  ]);
   return {
     location: { status: s.location || 'unknown', name: weather.auto?.name || null },
     calendar: { status: s.calendar || 'unknown', list: cals.ok ? cals.calendars : [] },
+    photos: album,
   };
 }
 
@@ -528,6 +543,10 @@ function onDeviceMessage(msg) {
       return Promise.allSettled([chatgptUsage.ask(), usage.ask()]).then(() => {
         if (msg.ack) link?.send({ type: 'usageRefreshed' });
       });
+    case 'photos':
+      if (typeof msg.visible === 'boolean') photos.setVisible(msg.visible);
+      if (msg.action === 'next') photos.next();
+      return;
     case 'log':
       return log.info('[device]', msg.message);
   }
@@ -584,6 +603,7 @@ async function connect(serial) {
   l.on('close', () => {
     if (link !== l) return;
     link = null;
+    photos.setVisible(false);
     log.info('[device] disconnected');
     setTimeout(refreshDevices, 1500);
   });
@@ -644,6 +664,7 @@ settings.on('change', (_, changed) => {
 weather.on('change', (state) => link?.send({ type: 'weather', weather: state }));
 calendar.on('change', (state) => link?.send({ type: 'calendar', calendar: state }));
 perpetual.on('change', (state) => link?.send({ type: 'perpetual', perpetual: state }));
+photos.on('change', (state) => link?.send({ type: 'photo', photo: state }));
 usage.on('change', (state) => link?.send({ type: 'usage', usage: state }));
 chatgptUsage.on('change', (state) => link?.send({ type: 'chatgptUsage', usage: state }));
 appearance.on('change', (dark) => link?.send({ type: 'appearance', dark }));
@@ -675,6 +696,7 @@ helper.start();
 weather.start();
 calendar.start();
 perpetual.start();
+photos.start();
 usage.start();
 chatgptUsage.start();
 appearance.start();
