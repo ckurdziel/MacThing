@@ -44,12 +44,12 @@
   .seg button { border: 0; background: none; color: var(--text); font: inherit; font-size: 14px;
     padding: 5px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
   .seg button[aria-pressed="true"] { background: var(--seg-on); box-shadow: 0 1px 3px rgba(0,0,0,.15); font-weight: 600; }
-  select[data-key], .rem select { flex-shrink: 0; max-width: 100%; min-height: 34px; padding: 6px 34px 6px 12px;
+  select[data-key], select.slot, .rem select { flex-shrink: 0; max-width: 100%; min-height: 34px; padding: 6px 34px 6px 12px;
     font: inherit; font-size: 14px; color: var(--text); background: var(--seg);
     border: 1px solid var(--line); border-radius: 9px; outline-color: var(--accent); color-scheme: light;
     appearance: none; -webkit-appearance: none; background-image: var(--select-arrow);
     background-repeat: no-repeat; background-position: right 12px center; background-size: 12px 12px; }
-  @media (prefers-color-scheme: dark) { select[data-key], .rem select { color-scheme: dark; } }
+  @media (prefers-color-scheme: dark) { select[data-key], select.slot, .rem select { color-scheme: dark; } }
   .rem { padding: 10px 0; }
   .rem + .rem { border-top: 1px solid var(--line); }
   .rem-main { display: flex; align-items: center; gap: 10px; }
@@ -150,6 +150,14 @@
           <span class="seg" data-key="artBackground"><button data-v="false">Off</button><button data-v="true">On</button></span></div>
       </section>
       <section>
+        <h3 class="subhead">Top buttons</h3>
+        <div class="note">What each of the four buttons along the top opens, left to right. Picking a screen another button has swaps the two.</div>
+        <div class="row"><label class="label" for="slot0">Button 1</label><select id="slot0" class="slot"></select></div>
+        <div class="row"><label class="label" for="slot1">Button 2</label><select id="slot1" class="slot"></select></div>
+        <div class="row"><label class="label" for="slot2">Button 3</label><select id="slot2" class="slot"></select></div>
+        <div class="row"><label class="label" for="slot3">Button 4</label><select id="slot3" class="slot"></select></div>
+      </section>
+      <section>
         <h3 class="subhead">Sleep and lock</h3>
         <div class="row"><div><label class="label" for="screenSleep">Sleep</label><div class="note">With Mac: when the Mac’s display sleeps or the Mac locks. Idle: no keyboard or mouse on the Mac</div></div>
           <select id="screenSleep" data-key="screenSleep" data-type="number"><option value="mac">With Mac</option><option value="30">Mac idle 30 min</option><option value="60">Mac idle 1 hr</option><option value="120">Mac idle 2 hr</option><option value="240">Mac idle 4 hr</option><option value="never">Never</option></select></div>
@@ -158,7 +166,7 @@
       </section>
       <section>
         <h3 class="subhead">When no music is playing</h3>
-        <div class="row"><div><label class="label" for="rotateSeconds">Cycle screens</label><div class="note">Now Playing, Calendar, Weather and Clock in turn; a press or turn holds it for a minute</div></div>
+        <div class="row"><div><label class="label" for="rotateSeconds">Cycle screens</label><div class="note">The top buttons’ screens in turn; a press or turn holds it for a minute</div></div>
           <select id="rotateSeconds" data-key="rotateSeconds" data-type="number"><option value="0">Off</option><option value="15">Every 15 sec</option><option value="30">Every 30 sec</option><option value="60">Every 1 min</option><option value="120">Every 2 min</option></select></div>
         <div class="row" id="idleShowRow"><div><div class="label">Show</div><div class="note">Now Playing comes back when music starts</div></div>
           <span class="seg" data-key="idleScreen" id="idleScreen"><button data-v="weather">Weather</button><button data-v="clock">Clock</button><button data-v="calendar">Calendar</button><button data-v="none">Date</button></span></div>
@@ -301,6 +309,7 @@
         ? 'Location access is off for “Car Thing Helper”. Turn it on in System Settings → Privacy & Security → Location Services, or choose a place.'
         : 'macOS will ask for permission the first time.';
 
+    renderSlots();
     renderCalendars();
     renderReminders();
   }
@@ -537,6 +546,24 @@
     picker = { anchor, mark, box, outside };
     document.addEventListener('mousedown', outside, true);
     input.focus();
+  }
+
+  // The top buttons' screens. Each screen is on one button at most, so picking one that another
+  // button has swaps the two.
+  const SCREEN_NAMES = { nowplaying: 'Now Playing', calendar: 'Calendar', weather: 'Weather', clock: 'Clock' };
+  const slots = [0, 1, 2, 3].map((i) => $(`#slot${i}`));
+  slots.forEach((select, i) => {
+    select.replaceChildren(...Object.entries(SCREEN_NAMES).map(([v, name]) => new Option(name, v)));
+    select.addEventListener('change', () => {
+      const screens = state.settings.screens.slice();
+      const other = screens.indexOf(select.value);
+      if (other >= 0) screens[other] = screens[i];
+      screens[i] = select.value;
+      save({ screens });
+    });
+  });
+  function renderSlots() {
+    slots.forEach((select, i) => { select.value = state.settings.screens[i]; });
   }
 
   // Which calendars feed the device. null means every one, so calendars added later come along too.

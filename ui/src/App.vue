@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { state, hasArt, idleCover, ambientUrl, ambientPreBlurred, ambientTint } from './state.js';
+import { state, CT, hasArt, idleCover, ambientUrl, ambientPreBlurred, ambientTint } from './state.js';
 import Artwork from './components/Artwork.vue';
 import IconSymbols from './components/IconSymbols.vue';
 import UiProgress from './components/UiProgress.vue';
@@ -19,17 +19,19 @@ const flashKey = ref(0);
 watch(() => state.flash.key, key => { if (!pausedBadge.value) flashKey.value = key; });
 watch(pausedBadge, paused => { if (paused) flashKey.value = 0; }); // the badge takes over from a flash under way
 const ambient = computed(() => !!(state.settings.artBackground && (hasArt.value || idleCover.value)));
-const NOTCHED = ['nowplaying', 'calendar', 'weather', 'clock']; // left to right, as the top buttons run
-// Settings has no top button, so the notch stays under the last page's while it fades out.
-const notchAt = ref(Math.max(0, NOTCHED.indexOf(state.current)));
-watch(() => state.current, current => { if (NOTCHED.includes(current)) notchAt.value = NOTCHED.indexOf(current); });
+// The notch marks the top button of the screen that's up: its slot, left to right (CT.slots()).
+const slot = computed(() => CT.slots().indexOf(state.current));
+// Settings, and a screen on no button, have no button along the top, so the notch stays under
+// the last one's while it fades out.
+const notchAt = ref(Math.max(0, slot.value));
+watch(slot, i => { if (i >= 0) notchAt.value = i; });
 </script>
 <template>
   <IconSymbols />
   <div id="app" :data-screen="state.current" :class="{ offline: state.offline, asleep: state.asleep, light: state.light, 'ambient-on': ambient, 'show-volume': state.showVolume, 'volume-unsupported': state.volumeUnsupported }">
     <div v-if="ambient" class="ambient fill" :class="{ 'pre-blurred': ambientPreBlurred }"><Artwork :url="ambientUrl" :tint="ambientTint" /></div>
     <div class="screens fill" :data-switch="state.screenSwitch || null"><NowPlayingScreen /><CalendarScreen /><WeatherScreen /><ClockScreen /><SettingsScreen /></div>
-    <div class="page-notch" :class="{ on: NOTCHED.includes(state.current) }" :style="{ transform: 'translateX(' + notchAt * 201 + 'px)' }" />
+    <div class="page-notch" :class="{ on: slot >= 0 }" :style="{ transform: 'translateX(' + notchAt * 201 + 'px)' }" />
     <MeetingAlert />
     <ReminderAlert />
     <div class="volume-hud fill flex items-center gap-16">

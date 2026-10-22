@@ -177,9 +177,13 @@ export function initializeRuntime(state) {
     frozenParts = [];
   }
 
-  // The pages in the order their top buttons run, left to right. Moving between them wipes the
-  // new one in from that side; Settings, which has no top button, fades.
-  var PAGES = ['nowplaying', 'calendar', 'weather', 'clock'];
+  // The screens on top buttons 1–4, left to right (the screens setting, picked on the Mac). Moving
+  // between them wipes the new one in from that side; Settings, and a screen on no button, fades.
+  var DEFAULT_SCREENS = ['nowplaying', 'calendar', 'weather', 'clock'];
+  CT.slots = function () {
+    var screens = CT.settings.screens;
+    return screens && screens.length === 4 ? screens : DEFAULT_SCREENS;
+  };
 
   /** Shows a screen. `fade` crossfades even between pages, rather than sliding to the side. */
   CT.show = function (name, fade) {
@@ -191,7 +195,7 @@ export function initializeRuntime(state) {
       if (prev.hide) prev.hide();
       thaw();
       if (state.leaving) freeze(CT.current);
-      var from = PAGES.indexOf(CT.current), to = PAGES.indexOf(name);
+      var pages = CT.slots(), from = pages.indexOf(CT.current), to = pages.indexOf(name);
       state.screenSwitch = fade || from < 0 || to < 0 ? 'fade' : to > from ? 'next' : 'previous';
       state.leaving = CT.current;
       CT.current = name;
@@ -381,7 +385,15 @@ export function initializeRuntime(state) {
     if (key === 'Escape' && CT.current === 'settings') return CT.closeSettings();
     var actions = (CT.config.buttonClicks || {})[key];
     if (actions) return buttonPress(key, actions);
-    runButton(CT.config.buttons[key]);
+    runButton(buttonAction(key));
+  }
+
+  // A top button set to open a screen (bridge/config.js) opens the screen picked for its slot; any
+  // other action configured there stays as it is.
+  function buttonAction(key) {
+    var action = CT.config.buttons[key];
+    if (/^[1-4]$/.test(key) && action && action.indexOf('screen:') === 0) return 'screen:' + CT.slots()[key - 1];
+    return action;
   }
 
   // Buttons in config.buttonHolds do a second thing when held (by default: the settings button

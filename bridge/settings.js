@@ -9,6 +9,9 @@ import { DAY_MINUTES, EVERY_MINUTES, MAX_REMINDERS, MAX_TEXT, MAX_TIMES } from '
 // persisted outside the repo. Developer-level options live in config.js instead.
 const FILE = path.join(os.homedir(), 'Library', 'Application Support', 'carthing-now-playing', 'settings.json');
 
+// Every screen a top button can open.
+export const SCREENS = ['nowplaying', 'calendar', 'weather', 'clock'];
+
 export const DEFAULTS = {
   theme: 'dark', // 'dark' | 'light' | 'auto' (follow the Mac's appearance)
   units: 'F', // weather temperature: 'F' | 'C'
@@ -24,14 +27,15 @@ export const DEFAULTS = {
   // monitor) the playing app's if it's Spotify or Music | 'system' | 'spotify' | 'music'
   knobVolume: 'auto',
   idleMinutes: 0, // once nothing has played this long on Now Playing, show idleScreen (0 = never)
-  idleScreen: 'clock', // 'clock' | 'calendar' | 'weather'
-  rotateSeconds: 0, // nothing playing: step through the four screens every this many seconds (0 = off)
+  idleScreen: 'clock', // any of SCREENS but 'nowplaying'
+  rotateSeconds: 0, // nothing playing: step through the top buttons' screens every this many seconds (0 = off)
+  screens: ['nowplaying', 'calendar', 'weather', 'clock'], // what top buttons 1–4 open: four different SCREENS
   // When the screen turns off: 'mac' = while the Mac's display sleeps or the Mac is locked |
   // minutes the Mac has been idle (no keyboard or mouse, like a screen saver) | 'never'
   screenSleep: 'mac',
   // While the Mac is locked (and screenSleep isn't 'mac', which turns the screen off):
-  // 'unlocked' = everything works | 'nowplaying' | 'weather' | 'calendar' | 'clock' = held on that
-  // screen, with only the knob's volume and media controls
+  // 'unlocked' = everything works | any of SCREENS = held on that screen, with only the knob's
+  // volume and media controls
   whenLocked: 'unlocked',
   // Task reminders: [{ id, text, on, repeat: 'every' | 'times', every (minutes at the Mac),
   // times (minutes since midnight) }]. See widgets/reminders.js.
@@ -55,10 +59,11 @@ const VALID = {
   usageSource: (v) => ['claude', 'chatgpt', 'both', 'none'].includes(v),
   knobVolume: (v) => ['auto', 'system', 'spotify', 'music'].includes(v),
   idleMinutes: (v) => [0, 1, 2, 5, 10].includes(v),
-  idleScreen: (v) => ['clock', 'calendar', 'weather'].includes(v),
+  idleScreen: (v) => SCREENS.includes(v) && v !== 'nowplaying',
   rotateSeconds: (v) => [0, 15, 30, 60, 120].includes(v),
+  screens: (v) => Array.isArray(v) && v.length === 4 && new Set(v).size === 4 && v.every((s) => SCREENS.includes(s)),
   screenSleep: (v) => ['mac', 30, 60, 120, 240, 'never'].includes(v),
-  whenLocked: (v) => ['unlocked', 'nowplaying', 'weather', 'calendar', 'clock'].includes(v),
+  whenLocked: (v) => v === 'unlocked' || SCREENS.includes(v),
   reminders: (v) =>
     Array.isArray(v) &&
     v.length <= MAX_REMINDERS &&
