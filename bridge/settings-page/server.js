@@ -26,7 +26,11 @@ export function startSettingsPage({ port, settings, status, reminders, dev = fal
 
     try {
       if (req.method === 'GET' && url.pathname === '/') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        // Never inside another site's frame: clicks there would pass the Origin check above.
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
+          'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'",
+        });
         return res.end(page);
       }
       if (req.method === 'GET' && url.pathname === '/api/state') {
