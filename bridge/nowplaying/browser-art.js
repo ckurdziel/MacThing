@@ -1,7 +1,44 @@
 // From Nihal Shetty's fork, https://github.com/nihalshetty-boop/MacThing (MIT).
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import dns from 'node:dns';
+import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
 import { log } from '../log.js';
+
+// The playing page picks these URLs (its own address and its og:image), so the bridge only
+// fetches public addresses: a page mustn't be able to aim it at this Mac or the LAN, outside the
+// browser's own protections. Checked as each connection resolves, so redirects and a DNS answer
+// that changes between check and connect are covered too.
+// One list per family: a BlockList also matches IPv4 addresses against IPv6 rules (as ::ffff:a.b.c.d),
+// which would make the mapped-address rule below refuse every IPv4 address.
+const PRIVATE_V4 = new net.BlockList();
+const PRIVATE_V6 = new net.BlockList();
+for (const [prefix, bits] of [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12],
+  ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4],
+]) PRIVATE_V4.addSubnet(prefix, bits, 'ipv4');
+for (const [prefix, bits] of [['::', 127], ['::ffff:0:0', 96], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]]) {
+  PRIVATE_V6.addSubnet(prefix, bits, 'ipv6');
+}
+export function isPublic(ip) {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) return !PRIVATE_V4.check(mapped[1], 'ipv4');
+  return net.isIPv6(ip) ? !PRIVATE_V6.check(ip, 'ipv6') : !PRIVATE_V4.check(ip, 'ipv4');
+}
+function publicLookup(hostname, options, callback) {
+  dns.lookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err);
+    const refused = addresses.find((a) => !isPublic(a.address));
+    if (refused || !addresses.length) return callback(Object.assign(new Error(`not a public address: ${hostname}`), { code: 'ENOTPUBLIC' }));
+    if (options.all) return callback(null, addresses);
+    callback(null, addresses[0].address, addresses[0].family);
+  });
+}
+const MAX_REDIRECTS = 3;
+const HTML_BYTES = 200000; // og:image is in the head; the rest of the page is never read
+const IMAGE_BYTES = 10 * 1024 * 1024;
 
 /** bundle id → AppleScript application name, for reading the playing tab. */
 const BROWSER_APPS = {
@@ -115,18 +152,52 @@ export function matchingUrl(listing, title) {
   return matches.size === 1 ? matches.values().next().value : null;
 }
 
-async function fetchBytes(url, accept) {
-  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(8000), headers: { Accept: accept } });
-  if (!res.ok) return null;
-  const buf = Buffer.from(await res.arrayBuffer());
-  return buf.length ? buf : null;
+/**
+ * GETs a public http(s) URL, following up to MAX_REDIRECTS redirects, within 8 seconds in all.
+ * Reads at most `limit` bytes: past that, `truncate` keeps the start, otherwise there's nothing.
+ */
+function fetchBytes(href, accept, limit, { truncate = false, signal = AbortSignal.timeout(8000), redirects = 0 } = {}) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(href);
+    const literal = url.hostname.replace(/^\[|\]$/g, ''); // connecting to an IP skips the lookup
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password || (net.isIP(literal) && !isPublic(literal))) {
+      return resolve(null);
+    }
+    const get = url.protocol === 'https:' ? https.get : http.get;
+    const req = get(url, { headers: { Accept: accept, 'User-Agent': 'node' }, lookup: publicLookup, signal }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        if (redirects >= MAX_REDIRECTS) return resolve(null);
+        const next = new URL(res.headers.location, url).href;
+        return fetchBytes(next, accept, limit, { truncate, signal, redirects: redirects + 1 }).then(resolve, reject);
+      }
+      if (res.statusCode !== 200 || (!truncate && Number(res.headers['content-length']) > limit)) {
+        res.resume();
+        return resolve(null);
+      }
+      const chunks = [];
+      let size = 0;
+      const finish = () => resolve(size ? Buffer.concat(chunks).subarray(0, limit) : null);
+      res.on('data', (chunk) => {
+        chunks.push(chunk);
+        size += chunk.length;
+        if (size < limit) return;
+        res.destroy();
+        if (truncate) finish();
+        else resolve(null);
+      });
+      res.on('end', finish);
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+  });
 }
 
 async function youtubeImage(url) {
   const id = YT_ID.exec(url)?.[1];
   if (!id) return null;
   for (const name of ['maxresdefault', 'sddefault', 'hqdefault']) {
-    const buf = await fetchBytes(`https://i.ytimg.com/vi/${id}/${name}.jpg`, 'image/jpeg').catch(() => null);
+    const buf = await fetchBytes(`https://i.ytimg.com/vi/${id}/${name}.jpg`, 'image/jpeg', IMAGE_BYTES).catch(() => null);
     const size = buf && jpegSize(buf);
     if (size && Math.min(size.width, size.height) >= 360) return { buf, width: size.width, height: size.height };
   }
@@ -134,14 +205,14 @@ async function youtubeImage(url) {
 }
 
 async function pageImage(url) {
-  const html = await fetchBytes(url, 'text/html').catch(() => null);
+  const html = await fetchBytes(url, 'text/html', HTML_BYTES, { truncate: true }).catch(() => null);
   if (!html) return null;
-  const head = html.subarray(0, 200000).toString('utf8');
+  const head = html.toString('utf8');
   const tag = head.match(/<meta[^>]+property=["']og:image["'][^>]*>/i) || head.match(/<meta[^>]+name=["']twitter:image["'][^>]*>/i);
   const content = tag && tag[0].match(/content=["']([^"']+)["']/i);
   if (!content) return null;
   const imageUrl = new URL(content[1], url).href;
-  const buf = await fetchBytes(imageUrl, 'image/*').catch(() => null);
+  const buf = await fetchBytes(imageUrl, 'image/*', IMAGE_BYTES).catch(() => null);
   const size = buf && imageSize(buf);
   if (size && Math.min(size.width, size.height) >= 360) return { buf, width: size.width, height: size.height };
   return null;

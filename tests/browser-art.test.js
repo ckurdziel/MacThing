@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { browserArtKey, isBrowserPlaceholder, matchingUrl } from '../bridge/nowplaying/browser-art.js';
+import { browserArtKey, isBrowserPlaceholder, isPublic, matchingUrl } from '../bridge/nowplaying/browser-art.js';
 import { normalize } from '../bridge/nowplaying/mediaremote.js';
 
 test('videos sharing artwork do not share upgraded thumbnails', () => {
@@ -34,4 +34,12 @@ test('missing thumbnails stay absent while media identity remains available', ()
   assert.equal(snapshot.active, true);
   assert.equal(snapshot.artwork, null);
   assert.equal(snapshot.contentId, 'video-1');
+});
+
+test('artwork lookups reach public hosts but never this Mac or the local network', () => {
+  for (const ip of ['142.251.152.4', '8.8.8.8', '2606:4700::1111', '2001:4860:4860::8888']) assert.equal(isPublic(ip), true, ip);
+  for (const ip of [
+    '127.0.0.1', '10.0.0.1', '172.16.5.4', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '224.0.0.1',
+    '::1', '::', 'fe80::1', 'fd00::1', 'ff02::1', '::ffff:127.0.0.1', '::ffff:192.168.1.1',
+  ]) assert.equal(isPublic(ip), false, ip);
 });
