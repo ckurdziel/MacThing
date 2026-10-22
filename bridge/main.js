@@ -523,6 +523,9 @@ function askForKeyAccess() {
   }, KEY_RECHECK_MS);
 }
 
+// The settings the device's own Settings screen changes (ui/src/screens/SettingsScreen.vue).
+const DEVICE_SETTINGS = ['theme', 'artBackground', 'meetingAlert', 'screenSleep'];
+
 function onDeviceMessage(msg) {
   if (msg.type === 'command' || msg.type === 'volume' || msg.type === 'wake') {
     lastDeviceInput = Date.now();
@@ -539,6 +542,8 @@ function onDeviceMessage(msg) {
     case 'volume':
       return changeVolume(Number(msg.delta));
     case 'setting':
+      // Only what the device's own Settings screen offers; everything else is the Mac page's.
+      if (!DEVICE_SETTINGS.includes(msg.key)) return log.warn('[device] setting not changeable from the device:', String(msg.key).slice(0, 40));
       return settings.update({ [msg.key]: msg.value });
     case 'openSettingsPage':
       return openSettingsPage(msg.section);
@@ -552,8 +557,8 @@ function onDeviceMessage(msg) {
       if (typeof msg.visible === 'boolean') photos.setVisible(msg.visible);
       if (msg.action === 'next') photos.next();
       return;
-    case 'log':
-      return log.info('[device]', msg.message);
+    case 'log': // raw input events, which the page only sends with DEBUG set
+      return log.debug('[device]', String(msg.message).slice(0, 500));
   }
 }
 

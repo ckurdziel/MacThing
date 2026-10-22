@@ -8,6 +8,20 @@ import { isBootInstalled, syncDaemon, syncUi } from './deploy.js';
 const BINDING = '__carthingSend'; // page → Mac (Runtime.addBinding)
 const CONSOLE_MARK = '⁣carthing '; // fallback channel if bindings are unavailable
 const READY_COALESCE_MS = 2000; // hellos this soon after the last full state don't get another
+// The page's messages are a few hundred bytes; anything this big isn't from our page.
+const MAX_PAYLOAD = 64 * 1024;
+
+/**
+ * The page's DevTools socket, always through our own forward. The device reports the URL, so only
+ * its target path is taken from it: a tampered device can't point the bridge at another server.
+ */
+function pageSocketUrl(target) {
+  const reported = new URL(target.webSocketDebuggerUrl);
+  if (reported.protocol !== 'ws:' || !/^\/devtools\/page\/[\w-]+$/.test(reported.pathname)) {
+    throw new Error(`unexpected DevTools target ${reported.protocol}//…${reported.pathname}`);
+  }
+  return `ws://127.0.0.1:${config.cdpPort}${reported.pathname}`;
+}
 
 /** What device/sleepd.sh reads out of /var/lib/carthing/sleep.conf. */
 const sleepConf = () => ({
@@ -76,7 +90,7 @@ export class DeviceLink extends EventEmitter {
     if (!installed) log.warn('[device] boot web app not pointed at our UI yet — run `npm run setup-device` so it survives reboots');
 
     const target = await this.#waitForPage();
-    const cdp = await CDP.connect(target.webSocketDebuggerUrl);
+    const cdp = await CDP.connect(pageSocketUrl(target));
     this.cdp = cdp;
 
     cdp.on('Runtime.bindingCalled', (p) => p.name === BINDING && this.#onPayload(p.payload));
@@ -124,10 +138,16 @@ export class DeviceLink extends EventEmitter {
   }
 
   #onPayload(payload) {
+    if (typeof payload !== 'string' || payload.length > MAX_PAYLOAD) {
+      return log.warn('[device] oversized payload ignored');
+    }
     let msg;
     try {
       msg = JSON.parse(payload);
     } catch {
+      return log.warn('[device] bad payload', payload.slice(0, 200));
+    }
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.type !== 'string') {
       return log.warn('[device] bad payload', payload.slice(0, 200));
     }
     if (msg.type === 'hello') this.#ready();
