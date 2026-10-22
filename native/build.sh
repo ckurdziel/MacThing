@@ -14,10 +14,23 @@ ROOT="${0:A:h:h}"
 OUT="$ROOT/native/bin"
 ADAPTER="$ROOT/vendor/mediaremote-adapter"
 ADAPTER_TAG="v0.7.7"
+# The commit that tag pointed at when it was reviewed. Tags can be moved, so the build checks this
+# and stops if the checkout is anything else; bump both together after reviewing a new release.
+ADAPTER_COMMIT="e3ff5021eb0875858bd05f48d2e9ba2e962d1cf6"
 mkdir -p "$OUT"
 
 if [[ ! -d "$ADAPTER" ]]; then
   git clone -q --depth 1 --branch "$ADAPTER_TAG" https://github.com/ungive/mediaremote-adapter.git "$ADAPTER"
+fi
+adapter_head=$(git -C "$ADAPTER" rev-parse HEAD)
+if [[ "$adapter_head" != "$ADAPTER_COMMIT" ]]; then
+  echo "vendor/mediaremote-adapter is at $adapter_head, not the reviewed $ADAPTER_COMMIT ($ADAPTER_TAG)." >&2
+  echo "Delete vendor/mediaremote-adapter to fetch it again, or review the new code and update ADAPTER_COMMIT." >&2
+  exit 1
+fi
+if [[ -n "$(git -C "$ADAPTER" status --porcelain)" ]]; then
+  echo "vendor/mediaremote-adapter has local changes; delete it to fetch a clean copy." >&2
+  exit 1
 fi
 
 echo "• appinfo, powerwatch, artwork"
