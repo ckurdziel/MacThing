@@ -20,6 +20,23 @@ _Every screen here is captured from the Car Thing itself at 800×480 with fixtur
 (`npm run mock-screens`), then mounted in the device mockups in Figma, with the album art
 background on. [docs/1.0.0](docs/1.0.0/README.md) lists every screen and which album is behind it._
 
+## About this fork
+
+This is a fork of [srcurran/MacThing](https://github.com/srcurran/MacThing). On top of its 1.0.0 it adds:
+
+- **A Photos screen:** a photo frame for an album in the Photos app on your Mac, shuffled, with landscape photos filling the screen and portrait ones shown whole over a blurred copy.
+- **A Reminders screen:** your to-dos from the Reminders app, read-only, overdue and soonest due first.
+- **Choose the top buttons:** any four of the six screens, in any order, under Appearance → Top buttons on the Mac settings page.
+- **Cycle screens:** while nothing is playing, step through the top buttons' screens every 15 seconds to 2 minutes.
+- **Security hardening:**
+  - Browser artwork lookups only reach public addresses, with size limits.
+  - The bridge talks to the device only through its own local forward and rejects malformed messages; the device can change only the settings its own Settings screen offers.
+  - The settings page can't be framed by another site.
+  - The build checks the MediaRemote adapter is the reviewed commit.
+- **Bluetooth off on the Car Thing:** `npm run setup-device` turns off the radio, which nothing here uses; `npm run restore-device` turns it back on.
+
+Each of these is its own commit, so any one can be taken upstream on its own.
+
 ## New in 1.0.0
 
 - **Claude and ChatGPT usage** on the Clock screen: session and weekly rings, a pace for each, and when they reset. ChatGPT's numbers come live from Codex.
